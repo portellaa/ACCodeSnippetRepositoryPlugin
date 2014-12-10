@@ -14,6 +14,8 @@ extern NSString * const ACCodeSnippetSummaryKey;
 extern NSString * const ACCodeSnippetContentsKey;
 extern NSString * const ACCodeSnippetUserSnippetKey;
 extern NSString * const ACCodeSnippetLanguageKey;
+extern NSString * const ACCodeSnippetCompletionScopeKey;
+extern NSString * const ACCodeSnippetCompletionShortcutKey;
 
 extern NSString * const ACCodeSnippetLanguageObjectiveC;
 

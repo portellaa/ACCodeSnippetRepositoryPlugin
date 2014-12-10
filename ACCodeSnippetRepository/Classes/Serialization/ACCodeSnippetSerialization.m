@@ -14,9 +14,27 @@ NSString * const ACCodeSnippetSummaryKey = @"IDECodeSnippetSummary";
 NSString * const ACCodeSnippetContentsKey = @"IDECodeSnippetContents";
 NSString * const ACCodeSnippetUserSnippetKey = @"IDECodeSnippetUserSnippet";
 NSString * const ACCodeSnippetLanguageKey = @"IDECodeSnippetLanguage";
+NSString * const ACCodeSnippetCompletionScopeKey = @"IDECodeSnippetCompletionScopes";
+NSString * const ACCodeSnippetCompletionShortcutKey = @"IDECodeSnippetCompletionPrefix";
 
 NSString * const ACCodeSnippetLanguageObjectiveC = @"Xcode.SourceCodeLanguage.Objective-C";
 
+static NSString *const kACCodeSnippetIdentifierKey = @"Identifier";
+static NSString *const kACCodeSnippetLanguageKey = @"Language";
+static NSString *const kACCodeSnippetPlatformKey = @"Platform";
+static NSString *const kACCodeSnippetScopeKey = @"Scopes";
+static NSString *const kACCodeSnippetShortcutKey = @"Shortcuts";
+static NSString *const kACCodeSnippetSummaryKey = @"Summary";
+static NSString *const kACCodeSnippetTitleKey = @"Title";
+static NSString *const kACCodeSnippetUserSnippetKey = @"UserSnippet";
+
+@interface ACCodeSnippetSerialization ()
+
++ (NSArray *)allowedScopes;
+
++ (NSDictionary *)relationKeysDictionary;
+
+@end
 
 @implementation ACCodeSnippetSerialization
 
@@ -40,17 +58,17 @@ NSString * const ACCodeSnippetLanguageObjectiveC = @"Xcode.SourceCodeLanguage.Ob
     [string appendFormat:@"// %@\n", (summary?:@"")];
     [string appendString:@"//\n"];
     
-    for (NSString *key in [[dict allKeys] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]) {
-        
-        id value = dict[key];
-        
-        if ([value isKindOfClass:NSArray.class]) {
-            value = [NSString stringWithFormat:@"[%@]", [value componentsJoinedByString:@","]];
-        }
-        [string appendFormat:@"// %@: %@\n", key, value];
-    }
+    NSDictionary *mappingKeys = [self relationKeysDictionary];
     
-    [string appendString:(contents?:@"")];
+    [mutableDictionary enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, __unused BOOL *stop) {
+        if ([value isKindOfClass:[NSArray class]]) {
+            [string appendFormat:@"// %@: [%@]\n", mappingKeys[key], [value componentsJoinedByString:@","]];
+        } else {
+            [string appendFormat:@"// %@: %@\n", mappingKeys[key], value];
+        }
+    }];
+    
+    [string appendFormat:@"\n%@", contents ?: @""];
     
     return [string dataUsingEncoding:NSUTF8StringEncoding];
 }
@@ -90,18 +108,64 @@ NSString * const ACCodeSnippetLanguageObjectiveC = @"Xcode.SourceCodeLanguage.Ob
                                      key = [line substringWithRange:[result rangeAtIndex:1]];
                                      value = [[line substringWithRange:[result rangeAtIndex:2]] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
                                      
+                                     NSLog(@"Snippet attribute -> Analyzing key %@ with value %@", key, value);
+                                     
                                      if ([value hasPrefix:@"["] && [value hasSuffix:@"]"]) {
                                          value = [[value substringWithRange:NSMakeRange(1, [value length]-2)] componentsSeparatedByString:@","];
                                      }
                                      
-                                     if ([@"title|name" rangeOfString:[key lowercaseString]].location != NSNotFound) {
+                                     if ([kACCodeSnippetTitleKey rangeOfString:[key lowercaseString]].location != NSNotFound) {
                                          key = ACCodeSnippetTitleKey;
                                      }
                                      
-                                     if ([@"description|summary" rangeOfString:[key lowercaseString]].location != NSNotFound) {
+                                     if ([kACCodeSnippetSummaryKey rangeOfString:[key lowercaseString]].location != NSNotFound) {
                                          key = ACCodeSnippetSummaryKey;
                                      }
                                      
+                                     if ([kACCodeSnippetShortcutKey rangeOfString:[key lowercaseString]].location != NSNotFound) {
+                                         key = ACCodeSnippetCompletionShortcutKey;
+                                         
+                                         id newValue = dict[key];
+                                         
+                                         if (newValue) {
+                                             value = newValue;
+                                         }
+                                     }
+                                     
+                                     if ([kACCodeSnippetScopeKey rangeOfString:[key lowercaseString]].location != NSNotFound) {
+                                         key = ACCodeSnippetCompletionScopeKey;
+                                         
+                                         @autoreleasepool {
+                                             id existingScopesArray = dict[key];
+                                             NSMutableSet *existingScopesSet;
+                                             
+                                             if (!existingScopesArray) {
+                                                 existingScopesSet = [NSMutableSet set];
+                                             } else {
+                                                 existingScopesSet = [NSMutableSet setWithArray:existingScopesArray];
+                                             }
+                                             
+                                             if ([value isKindOfClass:[NSString class]]) {
+                                                 value = [value componentsSeparatedByString:@","];
+                                             }
+                                             
+                                             [value makeObjectsPerformSelector:@selector(stringByTrimmingCharactersInSet:)
+                                                                    withObject:[NSCharacterSet whitespaceCharacterSet]];
+                                             
+                                             for (__strong NSString *scopeValue in value) {
+                                                 scopeValue = [scopeValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                                                 
+                                                 if ([[self allowedScopes] indexOfObject:scopeValue] != NSNotFound) {
+                                                     [existingScopesSet addObject:scopeValue];
+                                                 }
+                                             }
+                                             
+                                             value = [existingScopesSet allObjects];
+                                         }
+                                         
+                                     }
+                                     
+                                     NSLog(@"Snippet attribute -> [%@] = %@", key, value);
                                      dict[key] = value;
                                  }];
             
@@ -127,6 +191,43 @@ NSString * const ACCodeSnippetLanguageObjectiveC = @"Xcode.SourceCodeLanguage.Ob
     dict[ACCodeSnippetContentsKey] = contents;
     
     return [dict copy];
+}
+
+#pragma mark - Private Methods
+
++ (NSArray *)allowedScopes {
+    static NSArray *allowedScopes = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        allowedScopes = @[@"All",
+                          @"ClassImplementation",
+                          @"ClassInterfaceVariables",
+                          @"ClassInterfaceMethods",
+                          @"CodeBlock",
+                          @"CodeExpression",
+                          @"Preprocessor",
+                          @"StringOrComment",
+                          @"TopLevel"
+                         ];
+    });
+    return allowedScopes;
+}
+
++ (NSDictionary *)relationKeysDictionary {
+    static NSDictionary *relationKeysDictionary = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        relationKeysDictionary = @{
+                                   ACCodeSnippetIdentifierKey:kACCodeSnippetIdentifierKey,
+                                   ACCodeSnippetTitleKey:kACCodeSnippetTitleKey,
+                                   ACCodeSnippetSummaryKey:kACCodeSnippetSummaryKey,
+                                   ACCodeSnippetUserSnippetKey:kACCodeSnippetUserSnippetKey,
+                                   ACCodeSnippetLanguageKey:kACCodeSnippetLanguageKey,
+                                   ACCodeSnippetCompletionScopeKey:kACCodeSnippetScopeKey,
+                                   ACCodeSnippetCompletionShortcutKey:kACCodeSnippetShortcutKey
+                                   };
+    });
+    return relationKeysDictionary;
 }
 
 #pragma mark - 

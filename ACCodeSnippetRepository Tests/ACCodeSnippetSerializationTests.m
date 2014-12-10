@@ -60,7 +60,7 @@
 }
 
 - (void)testDeserialize2 {
-    NSString *string = @"// Title: title\n// Summary: summary\n//\n// WhateverKey: WhateverValue\n// Array: [one,two]\nline1\nline2\nline3\n";
+    NSString *string = @"// Title: title\n// Summary: summary\n//\n// WhateverKey: WhateverValue\nshortcut: cenas snippet\n// Array: [one,two]\nline1\nline2\nline3\n";
     
     NSDictionary *dict = [ACCodeSnippetSerialization dictionaryWithData:[string dataUsingEncoding:NSUTF8StringEncoding]
                                                                 options:0
@@ -85,6 +85,7 @@
                            ACCodeSnippetContentsKey: @"line1\nline2\nline3\n",
                            @"WhateverKey": @"WhateverValue",
                            @"Array": @[@"one", @"two"],
+                           ACCodeSnippetCompletionScopeKey: @"dict snippet"
                            };
     
     NSData *data = [ACCodeSnippetSerialization dataWithDictionary:dict1
